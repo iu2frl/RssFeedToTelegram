@@ -42,8 +42,8 @@ You can use this docker-compose file to run it on your server:
 ```yaml
 services:
   telegram-rss:
-    container_name: telegram-rss
-    image: iu2frl/telegram-rss:latest
+    container_name: telegram-rss # Can be any name
+    image: iu2frl/telegram-rss:latest # Updated at every release
     environment:
       - "BOT_TOKEN=XXXXXXXXXXXXXXXXXXXXX" # API Key of the bot
       - "BOT_ADMIN=XXXXXXXXXXX" # Chat ID of the administrator
@@ -53,7 +53,7 @@ services:
       - frlbot:/home/frlbot/store # Path of the sqlite file
     deploy:
       resources:
-        limits:
+        limits: # Optional
           cpus: '1'
           memory: 1024M
 volumes:
