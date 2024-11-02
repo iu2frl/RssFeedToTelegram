@@ -2,6 +2,10 @@
 
 This bot reads articles from a list of RSS feeds, translate them to a custom language and sends the output to a Telegram chat (can be any chat, group or channel)
 
+## Live example
+
+See a live example of this code at [IU2FRL Blog channel](https://t.me/iu2frl_news) on Telegram
+
 ## Configuration
 
 Working variables are set via environments, these are the used ones:
@@ -19,10 +23,11 @@ Working variables are set via environments, these are the used ones:
 - `/addfeed [url]`: adds a new URL to the RSS feeds list
 - `/rmfeed [id]`: removes the specified ID from the RSS list
 - `/force`: forces a bot execution
-- `/rmoldnews`: removes old news from the DB (older than `MAX_NEWS_AGE` days)
+- `/rmoldnews`: removes old news from the DB (older than `MAX_NEWS_AGE` days - generally not needed, this is done automatically)
 - `/addcsv [url],[url],[...]`: adds a list of RSS feeds separated by commas
-- `/dbcleanup`: check if RSS feeds are valid or duplicated
-- `/sqlitebackup`: makes a backup of the SQLite database
+- `/dbcleanup`: check if any of the RSS feeds are invalid or duplicated and deletes them from DB
+- `/sqlitebackup`: makes a backup of the SQLite database and sends it to the chat
+- `/importopml [opml file url]`: to import a list of feeds from an OPML file (example: `https://git.dk1mi.radio/mclemens/Ham-Radio-RSS-Feeds/raw/branch/main/hamradio.opml`)
 
 ## Functioning
 

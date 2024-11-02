@@ -19,10 +19,11 @@ import sys
 import getopt
 import threading
 from googletrans import Translator
-import requests
 import xml.dom.minidom
 import emoji
 import requests
+import xml.etree.ElementTree as ET
+import csv
 
 # Specify logging level
 logging.basicConfig(level=logging.DEBUG)
@@ -458,6 +459,43 @@ def telegram_loop():
     logging.info("Starting telegram loop")
     telegramBot.infinity_polling()
 
+def file_download(url):
+    response = requests.get(url)
+    response.raise_for_status()  # Check if the request was successful
+    return response.text
+
+def opml_import_xmlfeeds(opml_content) -> int:
+    root = ET.fromstring(opml_content)
+    imported_feeds = 0
+    for outline in root.findall(".//outline"):
+        xmlFeed = outline.get("xmlUrl")  # Use "xmlUrl" to find xmlFeed
+        if xmlFeed:
+            if add_feed_if_not_duplicate(xmlFeed):
+                imported_feeds += 1
+    return imported_feeds
+
+def add_feed_if_not_duplicate(feed_url) -> bool:
+    sqlCon = get_sql_connector()
+    if sqlCon.execute("SELECT * FROM feeds WHERE url=?", [feed_url]).fetchone() is not None:
+        logging.warning("Duplicate URL [" + feed_url + "]")
+        return False
+    else:
+        try:
+            logging.info("Adding [" + feed_url + "] to DB")
+            if valid_xml(feed_url):
+                sqlCon.execute("INSERT INTO feeds(url) VALUES(?)", [feed_url])
+                logging.debug("Added [" + feed_url + "] to DB")
+            else:
+                logging.warning("RSS feed [" + feed_url + "] cannot be validated")
+                return False
+        except Exception as retExc:
+            logging.warning(retExc)
+            return False
+    # Commit changes to DB
+    sqlCon.commit()
+    sqlCon.close()
+    return True
+
 # Main method invocation
 if __name__ == "__main__":
     logging.info("Starting frlbot at " + str(datetime.now()))
@@ -511,21 +549,10 @@ if __name__ == "__main__":
                         return
                     logging.debug("Feed add requested from [" + str(inputMessage.from_user.id) + "]")
                     # Check if feed already exists
-                    if sqlCon.execute("SELECT * FROM feeds WHERE url=?", [splitText[1]]).fetchone() is not None:
-                        logging.warning("Duplicate URL [" + splitText[1] + "]")
-                        telegramBot.reply_to(inputMessage, "URL exists in the DB")
-                        return
-                    # Add it to the store
-                    try:
-                        logging.info("Adding [" + splitText[1] + "] to DB")
-                        if valid_xml(splitText[1]):
-                            sqlCon.execute("INSERT INTO feeds(url) VALUES(?)", [splitText[1]])
-                            sqlCon.commit()
-                            telegramBot.reply_to(inputMessage, "Added successfully!")
-                        else:
-                            telegramBot.reply_to(inputMessage, "RSS feed cannot be validated (invalid syntax or unreachable)")
-                    except Exception as retExc:
-                        telegramBot.reply_to(inputMessage, retExc)
+                    if add_feed_if_not_duplicate(splitText[1]):
+                        telegramBot.reply_to(inputMessage, "Added successfully!")
+                    else:
+                        telegramBot.reply_to(inputMessage, "RSS feed cannot be validated (invalid syntax, unreachable or duplicated)")
                 else:
                     logging.warning("Invalid AddFeed arguments [" + inputMessage.text + "]")
                     telegramBot.reply_to(inputMessage, "Expecting only one argument")
@@ -591,7 +618,7 @@ if __name__ == "__main__":
             if inputMessage.from_user.id == get_admin_chat_from_env():
                 logging.debug("Adding news from CSV list")
                 global telegramBot
-                sqlCon = get_sql_connector()
+                
                 splitMessage = inputMessage.text.split("/addcsv")
                 # Invalid syntax
                 if len(splitMessage) <= 1:
@@ -607,23 +634,9 @@ if __name__ == "__main__":
                 for singleUrl in splitCsv:
                     # Clean input string
                     singleUrl = singleUrl.strip()
-                    # Check if feed already exists
-                    if sqlCon.execute("SELECT * FROM feeds WHERE url=?", [singleUrl]).fetchone() is not None:
-                        logging.warning("Duplicate URL [" + singleUrl + "]")
-                    else:
-                        try:
-                            logging.info("Adding [" + singleUrl + "] to DB")
-                            if valid_xml(singleUrl):
-                                sqlCon.execute("INSERT INTO feeds(url) VALUES(?)", [singleUrl])
-                                newFeedsCnt += 1
-                                logging.debug("Added [" + singleUrl + "] to DB")
-                            else:
-                                logging.warning("RSS feed [" + singleUrl + "] cannot be validated")
-                        except Exception as retExc:
-                            continue
-                # Commit changes to DB
-                sqlCon.commit()
-                sqlCon.close()
+                    # Add feed if not existing
+                    if (add_feed_if_not_duplicate(singleUrl)):
+                        newFeedsCnt += 1
                 # Send reply
                 telegramBot.reply_to(inputMessage, "[" + str(newFeedsCnt) + "] out of [" + str(len(splitCsv)) + "] feeds were added to DB")
             else:
@@ -678,6 +691,29 @@ if __name__ == "__main__":
                                             document=dbFile,
                                             reply_to_message_id=inputMessage.id,
                                             caption="SQLite backup at " + str(datetime.now()))
+                except Exception as retExc:
+                    telegramBot.reply_to(inputMessage, "Error: " + str(retExc))
+            else:
+                logging.debug("Ignoring message from [" + str(inputMessage.from_user.id) + "]")
+        # Parse OPML file
+        @telegramBot.message_handler(content_types=["text"], commands=['importopml'])
+        def HandleImportOPML(inputMessage: telebot.types.Message):
+            global telegramBot
+            if inputMessage.from_user.id == get_admin_chat_from_env():
+                logging.debug("OPML file import requested from [" + str(inputMessage.from_user.id) + "]")
+                splitText = inputMessage.text.split(" ")
+                if len(splitText) != 2:
+                    telegramBot.reply_to(inputMessage, f"Command length is invalid, found {len(splitText)} arguments")
+                    logging.warning(f"Invalid OPML import command received: {inputMessage}")
+                    return
+                else:
+                    telegramBot.reply_to(inputMessage, f"Starting OPML file import, please wait")
+                    logging.info(f"Starting OPML import of [{splitText[1]}]")
+                # Parse OPML file
+                try:
+                    opml_content = file_download(splitText[1])
+                    imported_feeds = opml_import_xmlfeeds(opml_content)
+                    telegramBot.reply_to(inputMessage, f"Imported {imported_feeds} feeds")
                 except Exception as retExc:
                     telegramBot.reply_to(inputMessage, "Error: " + str(retExc))
             else:
