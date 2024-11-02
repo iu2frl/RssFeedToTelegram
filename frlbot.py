@@ -1,8 +1,3 @@
-# TODO:
-# - Set BOT_TOKEN to ENV with the API_KEY for the bot
-# - Set BOT_TARGET to ENV with the target channel (to send messages)
-# - Set NEWS_COUNT if needed
-
 # Import external classes
 import feedparser
 import dateutil.parser
