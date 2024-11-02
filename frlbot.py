@@ -455,11 +455,13 @@ def telegram_loop():
     telegramBot.infinity_polling()
 
 def file_download(url):
+    """Read the content of any URL and return the text"""
     response = requests.get(url)
     response.raise_for_status()  # Check if the request was successful
     return response.text
 
 def opml_import_xmlfeeds(opml_content) -> int:
+    """Loop in the OPML file and add each valid feed"""
     root = ET.fromstring(opml_content)
     imported_feeds = 0
     for outline in root.findall(".//outline"):
@@ -470,6 +472,7 @@ def opml_import_xmlfeeds(opml_content) -> int:
     return imported_feeds
 
 def add_feed_if_not_duplicate(feed_url) -> bool:
+    """Adds the RSS feed only if valid"""
     sqlCon = get_sql_connector()
     if sqlCon.execute("SELECT * FROM feeds WHERE url=?", [feed_url]).fetchone() is not None:
         logging.warning("Duplicate URL [" + feed_url + "]")
