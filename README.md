@@ -34,3 +34,28 @@ Working variables are set via environments, these are the used ones:
 Every `POST_INTERVAL` minutes, the bot fetches a list of feeds (that is stored in a SQLite file), checks if they are younger than `MAX_NEWS_AGE` days and sends it to the `BOT_TARGET`. Once the message is sent, the checksum for the article URL is calculated and stored in the DB (this is needed to avoid duplicate messages).
 
 Administrator can add, remove, view feeds via custom commands. Database backup is also possible
+
+### Running on Docker
+
+You can use this docker-compose file to run it on your server:
+
+```yaml
+services:
+  telegram-rss:
+    container_name: telegram-rss
+    image: iu2frl/telegram-rss:latest
+    environment:
+      - "BOT_TOKEN=XXXXXXXXXXXXXXXXXXXXX" # API Key of the bot
+      - "BOT_ADMIN=XXXXXXXXXXX" # Chat ID of the administrator
+      - "BOT_TARGET=XXXXXXXXXXXXX" # Chat ID where to send news
+    restart: unless-stopped
+    volumes:
+      - frlbot:/home/frlbot/store # Path of the sqlite file
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1024M
+volumes:
+  frlbot:
+```
