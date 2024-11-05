@@ -195,43 +195,47 @@ def parse_news(urls_list: list[str]) -> list[NewsFromFeed]:
     news_list: list[NewsFromFeed] = []
     # Scan each feed and convert it to a class element. Store the checksum to avoid dupes
     for single_feed in feeds_list:
-        logging.debug("Processing [" + single_feed["link"] + "]")
-        # Old RSS format
-        if single_feed["summary"]:
-            feed_content = remove_html(single_feed["summary"])
-            # Check if valid content
-            if len(feed_content) <= 10:
-                logging.warning("Skipping [" + single_feed["link"] + "], empty content")   
-                continue
-            # Generate new article
-            try:
-                if single_feed["author"]:
-                    new_article = NewsFromFeed(single_feed["title"], single_feed["published"], single_feed["author"], feed_content, single_feed["link"])
-                else:
-                    new_article = NewsFromFeed(single_feed["title"], single_feed["published"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
+        try:
+            logging.debug("Processing [" + single_feed["link"] + "]")
+            # Old RSS format
+            if single_feed["summary"]:
+                feed_content = remove_html(single_feed["summary"])
+                # Check if valid content
+                if len(feed_content) <= 10:
+                    logging.warning("Skipping [" + single_feed["link"] + "], empty content")   
+                    continue
+                # Generate new article
+                try:
+                    if single_feed["author"]:
+                        new_article = NewsFromFeed(single_feed["title"], single_feed["published"], single_feed["author"], feed_content, single_feed["link"])
+                    else:
+                        new_article = NewsFromFeed(single_feed["title"], single_feed["published"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
+                    news_list.append(new_article)
+                except Exception as ret_exception:
+                    logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
+            # New RSS format
+            elif single_feed["description"]:
+                # Check if valid content
+                feed_content = remove_html(single_feed["description"])
+                # Check if valid content
+                if len(feed_content) <= 10:
+                    logging.warning("Skipping [" + single_feed["link"] + "], empty content")   
+                    continue
+                # Generate new article
+                try:
+                    if single_feed["dc:creator"]:
+                        new_article = NewsFromFeed(single_feed["title"], single_feed["pubDate"], single_feed["dc:creator"], feed_content, single_feed["link"])
+                    else:
+                        new_article = NewsFromFeed(single_feed["title"], single_feed["pubDate"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
+                except Exception as ret_exception:
+                    logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
                 news_list.append(new_article)
-            except Exception as ret_exception:
-                logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
-        # New RSS format
-        elif single_feed["description"]:
-            # Check if valid content
-            feed_content = remove_html(single_feed["description"])
-            # Check if valid content
-            if len(feed_content) <= 10:
-                logging.warning("Skipping [" + single_feed["link"] + "], empty content")   
+            else:
+                # Unknown format
+                logging.warning("Skipping [" + single_feed["link"] + "], incompatible RSS format")
                 continue
-            # Generate new article
-            try:
-                if single_feed["dc:creator"]:
-                    new_article = NewsFromFeed(single_feed["title"], single_feed["pubDate"], single_feed["dc:creator"], feed_content, single_feed["link"])
-                else:
-                    new_article = NewsFromFeed(single_feed["title"], single_feed["pubDate"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
-            except Exception as ret_exception:
-                logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
-            news_list.append(new_article)
-        else:
-            # Unknown format
-            logging.warning("Skipping [" + single_feed["link"] + "], incompatible RSS format")
+        except Exception as returned_exception:
+            logging.warning(f"Cannot parse article, error: {returned_exception}")
             continue
     # Return list
     logging.info("Fetch [" + str(len(news_list)) + "] news")
@@ -331,29 +335,6 @@ def remove_old_news(max_days: int = -1) -> int:
         logging.error("Cannot delete older news. " + str(returned_exception))
         return -1
 
-# Escape characters that cannot be parsed
-def escape_markdown_v2(text: str) -> str:
-    """
-    Escape special characters for Telegram MarkdownV2 format.
-    Characters that need escaping: '_', '*', '[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'
-    
-    Args:
-        text (str): The text to escape
-        
-    Returns:
-        str: The escaped text safe for MarkdownV2
-    """
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!', '\'']
-    escaped_text = ''
-    
-    for char in text:
-        if char in special_chars:
-            escaped_text += f'\\{char}'
-        else:
-            escaped_text += char
-            
-    return escaped_text
-
 # Main code
 def main():
     """Main robot code"""
@@ -393,12 +374,12 @@ def main():
                 emoji_calendar = emoji.emojize(":spiral_calendar:", language="alias")
                 emoji_link = emoji.emojize(":link:", language="alias")
                 try:
-                    telegram_payload = f"{emoji_flag_it} {escape_markdown_v2(translate_text(single_news.title, 'it'))}\n" + \
-                                        f"{emoji_flag_en} {escape_markdown_v2(translate_text(single_news.title, 'en'))}\n" + \
-                                        f"\n{emoji_pencil} {escape_markdown_v2(single_news.author)}\n" + \
+                    telegram_payload = f"{emoji_flag_it} {translate_text(single_news.title, 'it')}\n" + \
+                                        f"{emoji_flag_en} {translate_text(single_news.title, 'en')}\n" + \
+                                        f"\n{emoji_pencil} {single_news.author}\n" + \
                                         f"{emoji_calendar} {single_news.date.strftime('%Y/%m/%d, %H:%M')}\n" + \
-                                        f"\n{emoji_flag_it} {escape_markdown_v2(translate_text(single_news.summary, 'it'))}\n" + \
-                                        f"\n{emoji_flag_en} {escape_markdown_v2(translate_text(single_news.summary, 'en'))}\n" + \
+                                        f"\n{emoji_flag_it} {translate_text(single_news.summary, 'it')}\n" + \
+                                        f"\n{emoji_flag_en} {translate_text(single_news.summary, 'en')}\n" + \
                                         f"\n{emoji_link} {single_news.link}"
                     if not dryRun:
                         telegramBot.send_message(get_target_chat_from_env(), telegram_payload, parse_mode="MARKDOWN")
@@ -450,7 +431,7 @@ def check_arguments(argv) -> list[bool, bool, bool]:
                 force_run = True
             if opt in ("-n", "--notr"):
                 no_translate = True
-        logging.info("DryRun: " + str(dry_run) + " - ForceRun: " + str(force_run) + " - NoAI: " + str(no_translate))
+        logging.info("DryRun: " + str(dry_run) + " - ForceRun: " + str(force_run) + " - NoTranslate: " + str(no_translate))
         return dry_run, force_run, no_translate
     except:
         return None
