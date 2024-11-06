@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 import csv
 
 # Specify logging level
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logging.getLogger('hpack').setLevel(logging.WARNING)
 logging.getLogger('urllib3').setLevel(logging.INFO)
 
@@ -172,6 +172,7 @@ def extract_domain(url):
 def parse_news(urls_list: list[str]) -> list[NewsFromFeed]:
     """Reads the url list and returns a list of RSS contents"""
     # Get feeds from the list above
+    logging.info(f"Parsing news from [{len(urls_list)}] sources, please wait...")
     fetch_feeds = []
     for url in urls_list:
         logging.debug("Retrieving feed at [" + url + "]")
@@ -206,11 +207,16 @@ def parse_news(urls_list: list[str]) -> list[NewsFromFeed]:
                     continue
                 # Generate new article
                 try:
-                    if single_feed["author"]:
-                        new_article = NewsFromFeed(single_feed["title"], single_feed["published"], single_feed["author"], feed_content, single_feed["link"])
-                    else:
-                        new_article = NewsFromFeed(single_feed["title"], single_feed["published"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
+                    new_article = NewsFromFeed(single_feed["title"], single_feed["published"], single_feed["author"], feed_content, single_feed["link"])
                     news_list.append(new_article)
+                except KeyError as ret_exception:
+                    if "author" in str(ret_exception):
+                        try:
+                            logging.info(f"Cannot get author from feed at [{single_feed["link"]}], setting Anonymous")
+                            new_article = NewsFromFeed(single_feed["title"], single_feed["published"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
+                            news_list.append(new_article)
+                        except Exception as ret_exception:
+                            logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
                 except Exception as ret_exception:
                     logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
             # New RSS format
@@ -223,13 +229,40 @@ def parse_news(urls_list: list[str]) -> list[NewsFromFeed]:
                     continue
                 # Generate new article
                 try:
-                    if single_feed["dc:creator"]:
-                        new_article = NewsFromFeed(single_feed["title"], single_feed["pubDate"], single_feed["dc:creator"], feed_content, single_feed["link"])
-                    else:
-                        new_article = NewsFromFeed(single_feed["title"], single_feed["pubDate"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
+                    new_article = NewsFromFeed(single_feed["title"], single_feed["pubDate"], single_feed["dc:creator"], feed_content, single_feed["link"])
+                    news_list.append(new_article)
+                except KeyError as ret_exception:
+                    if "dc:creator" in str(ret_exception):
+                        try:
+                            logging.info(f"Cannot get author from feed at [{single_feed["link"]}], setting Anonymous")
+                            new_article = NewsFromFeed(single_feed["title"], single_feed["pubDate"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
+                            news_list.append(new_article)
+                        except Exception as ret_exception:
+                            logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
                 except Exception as ret_exception:
                     logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
-                news_list.append(new_article)
+            # Another RSS format
+            elif single_feed["content"]:
+                # Check if valid content
+                feed_content = remove_html(single_feed["content"])
+                # Check if valid content
+                if len(feed_content) <= 10:
+                    logging.warning("Skipping [" + single_feed["link"] + "], empty content")   
+                    continue
+                # Generate new article
+                try:
+                    new_article = NewsFromFeed(single_feed["title"], single_feed["published"], single_feed["author"], feed_content, single_feed["link"])
+                    news_list.append(new_article)
+                except KeyError as ret_exception:
+                    if "author" in str(ret_exception):
+                        try:
+                            logging.info(f"Cannot get author from feed at [{single_feed["link"]}], setting Anonymous")
+                            new_article = NewsFromFeed(single_feed["title"], single_feed["published"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
+                            news_list.append(new_article)
+                        except Exception as ret_exception:
+                            logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
+                except Exception as ret_exception:
+                    logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
             else:
                 # Unknown format
                 logging.warning("Skipping [" + single_feed["link"] + "], incompatible RSS format")
@@ -238,7 +271,7 @@ def parse_news(urls_list: list[str]) -> list[NewsFromFeed]:
             logging.warning(f"Cannot parse article, error: {returned_exception}")
             continue
     # Return list
-    logging.info("Fetch [" + str(len(news_list)) + "] news")
+    logging.info("Fetched and processed [" + str(len(news_list)) + "] news")
     news_list.sort(key=lambda news: news.date, reverse=True)
     return news_list
 
@@ -392,9 +425,9 @@ def main():
                         sql_connector.commit()
                     news_cnt += 1
                 except Exception as returned_exception:
-                    logging.error(str(returned_exception))
                     exception_message = str(returned_exception)
-                    if "can\'t parse entities:" in returned_exception:
+                    logging.error(exception_message)
+                    if "can\'t parse entities:" in exception_message:
                         logging.warning("Skipping [" + single_news.checksum + "] due to Telegram parsing error")
                         sql_connector.cursor().execute("INSERT INTO news(date, checksum) VALUES(?, ?)", [single_news.date, single_news.checksum])
                         sql_connector.commit()
