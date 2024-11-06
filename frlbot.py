@@ -19,9 +19,10 @@ import emoji
 import requests
 import xml.etree.ElementTree as ET
 import csv
+from typing import List, Optional
 
 # Specify logging level
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logging.getLogger('hpack').setLevel(logging.WARNING)
 logging.getLogger('urllib3').setLevel(logging.INFO)
 
@@ -139,8 +140,11 @@ class NewsFromFeed(list):
 
     def __init__(self, inputTitle: str, inputDate: str, inputAuthor: str, inputSummary: str, inputLink: str = "") -> None:
         self.title = inputTitle.strip()
+        logging.debug(f"Class title: [{self.title}]")
         self.date = dateutil.parser.parse(inputDate).replace(tzinfo=None)
+        logging.debug(f"Class date: [{self.date}]")
         self.author = inputAuthor.strip()
+        logging.debug(f"Class author: [{self.author}]")
         if len(inputSummary) > 10:
             # Remove "Read more"
             regex_read_more = re.compile(re.escape("read more"), re.IGNORECASE)
@@ -153,11 +157,17 @@ class NewsFromFeed(list):
             cut_text: str = no_read_more[:300] + " ..."
         else:
             cut_text: str = no_read_more
-        self.summary = cut_text.strip()
+        self.summary = cut_text.strip().replace('\n', ' ')
+        logging.debug(f"Class summary: [{self.summary}]")
         clean_url = inputLink.strip().lower()
         self.link = "[" + self.title + "](" + clean_url + ")"
+        logging.debug(f"Class url: [{self.link}]")
         # Calculate checksum
         self.checksum = hashlib.md5(clean_url.encode('utf-8')).hexdigest()
+        logging.debug(f"Class checksum: [{self.checksum}]")
+
+    def __str__(self):
+        return f"[[{self.title}], [{self.date}], [{self.author}], [{self.summary}], [{self.link}], [{self.checksum}]]"
 
 # Extract domain from URL
 def extract_domain(url):
@@ -168,112 +178,99 @@ def extract_domain(url):
         return result.group(1)
     return "anonymous"
 
-# Parse RSS feed
-def parse_news(urls_list: list[str]) -> list[NewsFromFeed]:
-    """Reads the url list and returns a list of RSS contents"""
-    # Get feeds from the list above
-    logging.info(f"Parsing news from [{len(urls_list)}] sources, please wait...")
-    fetch_feeds = []
-    for url in urls_list:
-        logging.debug("Retrieving feed at [" + url + "]")
-        r: requests.Response = None
-        try:
-            r = requests.get(url, timeout=10)
-        except Exception as ret_exception:
-            logging.error("Cannot download feed from [" + url + "]. Error message: " + str(ret_exception))
-        if r is None:
-            logging.warning(f"Cannot retrieve [{url}] check network status")
-            continue
-        if r.status_code == 200:
-            try:
-                fetch_feeds.append(feedparser.parse(r.content)["entries"])
-            except Exception as ret_exception:
-                logging.error("Cannot parse feed from [" + url + "]. Error message: " + str(ret_exception))
+# Get the content of the RSS feed
+def fetch_feed(url: str) -> Optional[list]:
+    """Fetches the feed content from the URL."""
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return feedparser.parse(response.content)["entries"]
+    except requests.RequestException as e:
+        logging.error(f"Cannot download feed from [{url}]. Error message: {str(e)}")
+    except Exception as e:
+        logging.error(f"Cannot parse feed from [{url}]. Error message: {str(e)}")
+    return None
+
+# Extract property from the feed
+def extract_feed_content(entry, content_key: str) -> Optional[str]:
+    """Extracts and cleans content from an RSS entry."""
+    logging.debug(f"Searching for [{content_key}]")
+    content = entry.get(content_key)
+    logging.debug(f"Content: [{str(content)[:20]}...]")
+    if content:
+        cleaned_content = remove_html(str(content))
+        if len(cleaned_content) > 10:
+            logging.debug(f"Found value with length: [{len(cleaned_content)}]")
+            return cleaned_content
         else:
-            logging.warning("Got error code [" + str(r.status_code) + "] while retrieving content at [" + url + "]")
-    feeds_list = [item for feed in fetch_feeds for item in feed]
-    # Prepare list of news
-    news_list: list[NewsFromFeed] = []
-    # Scan each feed and convert it to a class element. Store the checksum to avoid dupes
-    for single_feed in feeds_list:
-        try:
-            logging.debug("Processing [" + single_feed["link"] + "]")
-            # Old RSS format
-            if single_feed["summary"]:
-                feed_content = remove_html(single_feed["summary"])
-                # Check if valid content
-                if len(feed_content) <= 10:
-                    logging.warning("Skipping [" + single_feed["link"] + "], empty content")   
-                    continue
-                # Generate new article
-                try:
-                    new_article = NewsFromFeed(single_feed["title"], single_feed["published"], single_feed["author"], feed_content, single_feed["link"])
-                    news_list.append(new_article)
-                except KeyError as ret_exception:
-                    if "author" in str(ret_exception):
-                        try:
-                            logging.info(f"Cannot get author from feed at [{single_feed["link"]}], setting Anonymous")
-                            new_article = NewsFromFeed(single_feed["title"], single_feed["published"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
-                            news_list.append(new_article)
-                        except Exception as ret_exception:
-                            logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
-                except Exception as ret_exception:
-                    logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
-            # New RSS format
-            elif single_feed["description"]:
-                # Check if valid content
-                feed_content = remove_html(single_feed["description"])
-                # Check if valid content
-                if len(feed_content) <= 10:
-                    logging.warning("Skipping [" + single_feed["link"] + "], empty content")   
-                    continue
-                # Generate new article
-                try:
-                    new_article = NewsFromFeed(single_feed["title"], single_feed["pubDate"], single_feed["dc:creator"], feed_content, single_feed["link"])
-                    news_list.append(new_article)
-                except KeyError as ret_exception:
-                    if "dc:creator" in str(ret_exception):
-                        try:
-                            logging.info(f"Cannot get author from feed at [{single_feed["link"]}], setting Anonymous")
-                            new_article = NewsFromFeed(single_feed["title"], single_feed["pubDate"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
-                            news_list.append(new_article)
-                        except Exception as ret_exception:
-                            logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
-                except Exception as ret_exception:
-                    logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
-            # Another RSS format
-            elif single_feed["content"]:
-                # Check if valid content
-                feed_content = remove_html(single_feed["content"])
-                # Check if valid content
-                if len(feed_content) <= 10:
-                    logging.warning("Skipping [" + single_feed["link"] + "], empty content")   
-                    continue
-                # Generate new article
-                try:
-                    new_article = NewsFromFeed(single_feed["title"], single_feed["published"], single_feed["author"], feed_content, single_feed["link"])
-                    news_list.append(new_article)
-                except KeyError as ret_exception:
-                    if "author" in str(ret_exception):
-                        try:
-                            logging.info(f"Cannot get author from feed at [{single_feed["link"]}], setting Anonymous")
-                            new_article = NewsFromFeed(single_feed["title"], single_feed["published"], extract_domain(single_feed["link"]), feed_content, single_feed["link"])
-                            news_list.append(new_article)
-                        except Exception as ret_exception:
-                            logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
-                except Exception as ret_exception:
-                    logging.warning("Cannot process [" + single_feed["link"] + "], exception: " + str(ret_exception))
+            logging.warning(f"Skipping [{entry['link']}], content too short.")
+    else:
+        logging.debug(f"Cannot find [{content_key}] in entry for [{entry['link']}]")
+    return None
+
+# Pack the properties to a custom class
+def create_article(entry, content_key: str, author_key: str, date_key: str) -> Optional[NewsFromFeed]:
+    """Creates a NewsFromFeed object from an entry."""
+    try:
+        logging.debug(f"Attempting to create article from [{entry['link']}] with content_key [{content_key}, {author_key}, {date_key}]")
+        feed_content = extract_feed_content(entry, content_key)
+        if feed_content:
+            logging.debug(f"Feed content: [{str(feed_content)[:20]}...]")
+            # Try to get author from the feed, if empty return the domain name
+            author = entry.get(author_key) or extract_domain(entry["link"])
+            logging.debug(f"Getting author with [{author_key}] returned: [{author}]")
+            # Try to get the title from the feed
+            title = entry["title"]
+            logging.debug(f"Title returned: [{title}]")
+            # Try to get the link
+            link = entry["link"]
+            logging.debug(f"Link returned: [{link}]")
+            # Try to get date from specified date_key, with fallbacks for common date fields
+            date = entry.get(date_key) or entry.get("published") or entry.get("updated")
+            logging.debug(f"Getting date with [{date_key}] returned: [{date}]")
+            # Build the news class and return it
+            if date:
+                parsed_feed = NewsFromFeed(title, date, author, feed_content, link)
+                logging.debug(f"Feed was properly built, feed content: [{parsed_feed}]")
+                return parsed_feed
             else:
-                # Unknown format
-                logging.warning("Skipping [" + single_feed["link"] + "], incompatible RSS format")
-                continue
-        except Exception as returned_exception:
-            logging.warning(f"Cannot parse article, error: {returned_exception}")
-            continue
-    # Return list
-    logging.info("Fetched and processed [" + str(len(news_list)) + "] news")
-    news_list.sort(key=lambda news: news.date, reverse=True)
-    return news_list
+                logging.warning(f"Cannot get a valid date using [{date_key}], tried fallbacks 'published' and 'updated'.")
+        else:
+            logging.warning(f"No valid content for [{entry['link']}]. Skipping entry.")
+    except KeyError as e:
+        logging.info(f"Missing expected field in [{entry['link']}]. Details: {str(e)}")
+    except Exception as e:
+        logging.warning(f"Cannot process entry for [{entry['link']}]. Error: {str(e)}")
+    return None
+
+# Main parsing function
+def parse_news(urls_list: List[str]) -> List[NewsFromFeed]:
+    """Parses RSS feeds from a list of URLs and returns a list of NewsFromFeed objects."""
+    logging.info(f"Parsing news from [{len(urls_list)}] sources, please wait...")
+    fetched_feeds = [feed for url in urls_list if (feed := fetch_feed(url))]
+
+    news_list = []
+    for feed in fetched_feeds:
+        for entry in feed:
+            logging.debug(f"Processing entry for [{entry['link']}]")
+            # Try each possible format key for content, author, and date; stop after first successful one
+            for content_key, author_key, date_key in [
+                ("description", "dc:creator", "pubDate"), 
+                ("summary", "author", "published"),
+                ("content", "author", "published")
+            ]:
+                logging.debug(f"Parsing feed using: {content_key}, {author_key}, {date_key}")
+                article = create_article(entry, content_key, author_key, date_key)
+                logging.debug(f"Create article returned: [{article}]")
+                if article is not None:
+                    logging.debug(f"Successfully created article for [{entry['link']}] with content_key [{content_key}]")
+                    news_list.append(article)
+                    break
+                else:
+                    logging.debug(f"Attempt to create article with content_key [{content_key}] failed for [{entry['link']}]")
+
+    logging.info(f"Fetched and processed [{len(news_list)}] news items")
+    return sorted(news_list, key=lambda news: news.date, reverse=True)
 
 # Handle translation
 def translate_text(input_text: str, dest_lang: str = "it") -> str:
@@ -484,6 +481,7 @@ schedule.every().day.at("01:00").do(remove_old_news, )
 # Execute bot news
 schedule.every(get_post_interval_from_env()).minutes.do(main, )
 
+# Takes care of scheduled operations (like database cleanup)
 def scheduler_loop():
     """Thread to handle the scheduler"""
     logging.info("Starting scheduler loop")
@@ -491,17 +489,20 @@ def scheduler_loop():
         schedule.run_pending()
         time.sleep(5)
 
+# Check inputs from Telegram APIs
 def telegram_loop():
     """Thread to handle Telegram commands"""
     logging.info("Starting telegram loop")
     telegramBot.infinity_polling()
 
+# Download a file from an URL
 def file_download(url):
     """Read the content of any URL and return the text"""
     response = requests.get(url)
     response.raise_for_status()  # Check if the request was successful
     return response.text
 
+# Import all feeds from OPML file
 def opml_import_xmlfeeds(opml_content) -> int:
     """Loop in the OPML file and add each valid feed"""
     root = ET.fromstring(opml_content)
@@ -513,6 +514,7 @@ def opml_import_xmlfeeds(opml_content) -> int:
                 imported_feeds += 1
     return imported_feeds
 
+# Add feed to database if not duplicated
 def add_feed_if_not_duplicate(feed_url) -> bool:
     """Adds the RSS feed only if valid"""
     sqlCon = get_sql_connector()
