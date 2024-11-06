@@ -25,6 +25,7 @@ from typing import List, Optional
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger('hpack').setLevel(logging.WARNING)
 logging.getLogger('urllib3').setLevel(logging.INFO)
+logging.getLogger('httpx').setLevel(logging.INFO)
 
 # Set DryRun mode
 dryRun = False
@@ -152,12 +153,15 @@ class NewsFromFeed(list):
             no_read_more = re.sub(regex_read_more, "", inputSummary.strip())
         else:
             no_read_more = inputSummary
-        # Cut input text
+        # Remove line feeds
+        cut_text = no_read_more.strip().replace('\n', ' ')
+        # Remove excessive blank spaces
+        while '  ' in cut_text:
+            cut_text = cut_text.replace('  ', ' ')
+        # Cut input text if too long (Telegram API limitation)
         if len(no_read_more) > 300:
-            cut_text: str = no_read_more[:300] + " ..."
-        else:
-            cut_text: str = no_read_more
-        self.summary = cut_text.strip().replace('\n', ' ')
+            cut_text = cut_text[:300] + " ..."
+        self.summary = cut_text
         logging.debug(f"Class summary: [{self.summary}]")
         clean_url = inputLink.strip().lower()
         self.link = "[" + self.title + "](" + clean_url + ")"
@@ -182,8 +186,10 @@ def extract_domain(url):
 def fetch_feed(url: str) -> Optional[list]:
     """Fetches the feed content from the URL."""
     try:
+        logging.debug(f"Downloading RSS feed from [{url}]")
         response = requests.get(url, timeout=10)
         response.raise_for_status()
+        logging.debug(f"Retrieved {len(response.content)} bytes from [{url}]")
         return feedparser.parse(response.content)["entries"]
     except requests.RequestException as e:
         logging.error(f"Cannot download feed from [{url}]. Error message: {str(e)}")
@@ -215,13 +221,17 @@ def create_article(entry, content_key: str, author_key: str, date_key: str) -> O
         logging.debug(f"Attempting to create article from [{entry['link']}] with content_key [{content_key}, {author_key}, {date_key}]")
         feed_content = extract_feed_content(entry, content_key)
         if feed_content:
-            logging.debug(f"Feed content: [{str(feed_content)[:20]}...]")
+            logging.debug(f"Feed content length: [{len(str(feed_content))}]")
             # Try to get author from the feed, if empty return the domain name
             author = entry.get(author_key) or extract_domain(entry["link"])
             logging.debug(f"Getting author with [{author_key}] returned: [{author}]")
             # Try to get the title from the feed
             title = entry["title"]
-            logging.debug(f"Title returned: [{title}]")
+            if len(title) > 2:
+                logging.debug(f"Title returned: [{title}]")
+            else:
+                title = "No title"
+                logging.warning(f"Feed had no title, creating default one")
             # Try to get the link
             link = entry["link"]
             logging.debug(f"Link returned: [{link}]")
@@ -246,11 +256,14 @@ def create_article(entry, content_key: str, author_key: str, date_key: str) -> O
 # Main parsing function
 def parse_news(urls_list: List[str]) -> List[NewsFromFeed]:
     """Parses RSS feeds from a list of URLs and returns a list of NewsFromFeed objects."""
-    logging.info(f"Parsing news from [{len(urls_list)}] sources, please wait...")
+    urls_count = len(urls_list)
+    logging.info(f"Parsing news from [{urls_count}] sources, please wait...")
     fetched_feeds = [feed for url in urls_list if (feed := fetch_feed(url))]
-
+    feeds_counter = 1
     news_list = []
     for feed in fetched_feeds:
+        logging.debug(f"Parsing feed [{feeds_counter}/{len(fetched_feeds)}]")
+        feeds_counter += 1
         for entry in feed:
             logging.debug(f"Processing entry for [{entry['link']}]")
             # Try each possible format key for content, author, and date; stop after first successful one
@@ -261,7 +274,7 @@ def parse_news(urls_list: List[str]) -> List[NewsFromFeed]:
             ]:
                 logging.debug(f"Parsing feed using: {content_key}, {author_key}, {date_key}")
                 article = create_article(entry, content_key, author_key, date_key)
-                logging.debug(f"Create article returned: [{article}]")
+                logging.debug(f"Create article returned: {len(str(article))} bytes")
                 if article is not None:
                     logging.debug(f"Successfully created article for [{entry['link']}] with content_key [{content_key}]")
                     news_list.append(article)
@@ -295,7 +308,7 @@ def translate_text(input_text: str, dest_lang: str = "it") -> str:
         logging.error("Translation was too short")
         return input_text
     return translator_response.text
-    
+
 # Database preparation
 def prepare_db() -> None:
     """Prepare the sqlite store"""
