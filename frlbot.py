@@ -129,6 +129,13 @@ def remove_html(inputText: str) -> str:
     regex_html = re.compile('<.*?>|&([a-z0-9]+|#[0-9]{1,6}|#x[0-9a-f]{1,6});')
     return re.sub(regex_html, "", inputText.strip())
 
+# Remove links from text
+def remove_links(inputText: str) -> str:
+    """Remove links from the news content"""
+    # This regex matches URLs with or without http/https, including all subdomains
+    regex_link = re.compile(r'(?:https?:\/\/)?(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)')
+    return re.sub(regex_link, "", inputText.strip())
+
 # Create news class
 class NewsFromFeed(list):
     """Custom class to store news content"""
@@ -205,6 +212,7 @@ def extract_feed_content(entry, content_key: str) -> Optional[str]:
     logging.debug(f"Content: [{str(content)[:20]}...]")
     if content:
         cleaned_content = remove_html(str(content))
+        cleaned_content = remove_links(cleaned_content)
         if len(cleaned_content) > 10:
             logging.debug(f"Found value with length: [{len(cleaned_content)}]")
             return cleaned_content
