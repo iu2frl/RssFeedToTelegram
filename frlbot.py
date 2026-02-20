@@ -211,7 +211,30 @@ def extract_feed_content(entry, content_key: str) -> Optional[str]:
     content = entry.get(content_key)
     logging.debug(f"Content: [{str(content)[:20]}...]")
     if content:
-        cleaned_content = remove_html(str(content))
+        # feedparser sometimes returns complex objects (list/dict) instead of
+        # plain strings. `str()` of these objects ends up in the message with
+        # Python syntax, which is what the user observed. We need to unpack
+        # and select the actual text value (often under 'value' or 'valore').
+        def _unwrap(obj):
+            # handle lists by unwrapping each element
+            if isinstance(obj, list):
+                for item in obj:
+                    result = _unwrap(item)
+                    if result:
+                        return result
+                return ''
+            # handle dicts by looking for common keys or concatenating values
+            if isinstance(obj, dict):
+                for k in ('value', 'valore', 'text', 'description'):
+                    if k in obj and obj[k]:
+                        return _unwrap(obj[k])
+                # fallback: join child values
+                return ' '.join(_unwrap(v) for v in obj.values() if v)
+            # fallback: just stringify
+            return str(obj)
+
+        raw_text = _unwrap(content)
+        cleaned_content = remove_html(raw_text)
         cleaned_content = remove_links(cleaned_content)
         if len(cleaned_content) > 10:
             logging.debug(f"Found value with length: [{len(cleaned_content)}]")
