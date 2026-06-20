@@ -313,7 +313,7 @@ def parse_news(urls_list: List[str]) -> List[NewsFromFeed]:
                         break
                     else:
                         logging.debug(f"Attempt to create article with content_key [{content_key}] failed for [{entry['link']}]")
-            except (Exception ex)
+            except Exception as ex
                 logging.warning(f"Failed to parse article: {ex}")
 
     logging.info(f"Fetched and processed [{len(news_list)}] news items")
