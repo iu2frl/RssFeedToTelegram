@@ -194,7 +194,7 @@ def fetch_feed(url: str) -> Optional[list]:
     """Fetches the feed content from the URL."""
     try:
         logging.debug(f"Downloading RSS feed from [{url}]")
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=5)
         response.raise_for_status()
         logging.debug(f"Retrieved {len(response.content)} bytes from [{url}]")
         return feedparser.parse(response.content)["entries"]
@@ -392,7 +392,7 @@ def prepare_db() -> None:
 # Get SQL Connector
 def get_sql_connector() -> sqlite3.Connection:
     """Connect to sqlite"""
-    return sqlite3.connect("store/frlbot.db", timeout=3)
+    return sqlite3.connect("store/frlbot.db", timeout=5)
 
 # Delete old SQLite records
 def remove_old_news(max_days: int = -1) -> int:
@@ -517,7 +517,7 @@ def check_arguments(argv) -> list[bool, bool, bool]:
 def valid_xml(inputUrl: str) -> bool:
     """Check if XML has valid syntax"""
     try:
-        getRes = requests.get(inputUrl)
+        getRes = requests.get(inputUrl, timeout=5)
         xml.dom.minidom.parseString(getRes.content)
         return True
     except:
@@ -545,7 +545,7 @@ def telegram_loop():
 # Download a file from an URL
 def file_download(url):
     """Read the content of any URL and return the text"""
-    response = requests.get(url)
+    response = requests.get(url, timeout=5)
     response.raise_for_status()  # Check if the request was successful
     return response.text
 
