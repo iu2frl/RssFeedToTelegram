@@ -296,22 +296,25 @@ def parse_news(urls_list: List[str]) -> List[NewsFromFeed]:
         logging.debug(f"Parsing feed [{feeds_counter}/{len(fetched_feeds)}]")
         feeds_counter += 1
         for entry in feed:
-            logging.debug(f"Processing entry for [{entry['link']}]")
-            # Try each possible format key for content, author, and date; stop after first successful one
-            for content_key, author_key, date_key in [
-                ("description", "dc:creator", "pubDate"), 
-                ("summary", "author", "published"),
-                ("content", "author", "published")
-            ]:
-                logging.debug(f"Parsing feed using: {content_key}, {author_key}, {date_key}")
-                article = create_article(entry, content_key, author_key, date_key)
-                logging.debug(f"Create article returned: {len(str(article))} bytes")
-                if article is not None:
-                    logging.debug(f"Successfully created article for [{entry['link']}] with content_key [{content_key}]")
-                    news_list.append(article)
-                    break
-                else:
-                    logging.debug(f"Attempt to create article with content_key [{content_key}] failed for [{entry['link']}]")
+            try:
+                logging.debug(f"Processing entry for [{entry['link']}]")
+                # Try each possible format key for content, author, and date; stop after first successful one
+                for content_key, author_key, date_key in [
+                    ("description", "dc:creator", "pubDate"), 
+                    ("summary", "author", "published"),
+                    ("content", "author", "published")
+                ]:
+                    logging.debug(f"Parsing feed using: {content_key}, {author_key}, {date_key}")
+                    article = create_article(entry, content_key, author_key, date_key)
+                    logging.debug(f"Create article returned: {len(str(article))} bytes")
+                    if article is not None:
+                        logging.debug(f"Successfully created article for [{entry['link']}] with content_key [{content_key}]")
+                        news_list.append(article)
+                        break
+                    else:
+                        logging.debug(f"Attempt to create article with content_key [{content_key}] failed for [{entry['link']}]")
+            except (Exception ex)
+                logging.warning(f"Failed to parse article: {ex}")
 
     logging.info(f"Fetched and processed [{len(news_list)}] news items")
     return sorted(news_list, key=lambda news: news.date, reverse=True)
