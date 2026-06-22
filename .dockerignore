@@ -1,0 +1,11 @@
+.git
+.github
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.md
+LICENSE
+build_and_export.sh
+Dockerfile
