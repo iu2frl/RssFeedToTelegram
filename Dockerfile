@@ -19,5 +19,6 @@ ENV PATH="/opt/venv/bin:$PATH" \
 
 COPY --from=builder /opt/venv /opt/venv
 COPY frlbot.py ./
+COPY helpers ./helpers
 
 CMD ["python", "./frlbot.py"]
