@@ -1,4 +1,4 @@
-FROM python:3.11.2-slim AS builder
+FROM python:3.12-slim AS builder
 WORKDIR /build
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -10,7 +10,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
-FROM python:3.11.2-slim
+FROM python:3.12-slim
 WORKDIR /home/frlbot
 
 ENV PATH="/opt/venv/bin:$PATH" \
